@@ -81,6 +81,23 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
     _checkVideoSubscriptionStatus();
     _setupVideoWorkoutsListener();
     _loadSavedVideos();
+    _setupSubscriptionListener();
+  }
+
+  // ---------- Real-time Subscription Listener ----------
+  void _setupSubscriptionListener() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    _firestore
+        .collection('client_subscriptions')
+        .where('userId', isEqualTo: userId)
+        .where('type', isEqualTo: 'video')
+        .snapshots()
+        .listen((QuerySnapshot<Map<String, dynamic>> snapshot) {
+      if (!mounted) return;
+      _checkVideoSubscriptionStatus();
+    });
   }
 
   // ---------- Video Subscription Status Check ----------
@@ -582,11 +599,13 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
       // Navigate to payment
       if (!mounted) return;
       final plan = {
+        'docId': 'video_subscription_monthly',
         'name': 'Video Workouts Monthly Subscription',
         'amount': 100, // $1.00 in cents
         'price': 1.00,
         'buyerEmail': userEmail,
         'buyerName': userName,
+        'type': 'video',
       };
 
       final result = await Navigator.push<Map<String, dynamic>>(
@@ -617,6 +636,9 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
           'createdAt': Timestamp.now(),
         });
 
+        // Wait briefly for Firestore to sync
+        await Future.delayed(const Duration(milliseconds: 500));
+
         // Refresh subscription status
         await _checkVideoSubscriptionStatus();
 
@@ -628,6 +650,10 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
             duration: Duration(seconds: 3),
           ),
         );
+      } else {
+        // Even if result is null, check subscription (payment might have succeeded on backend)
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _checkVideoSubscriptionStatus();
       }
     } catch (e) {
       if (!mounted) return;

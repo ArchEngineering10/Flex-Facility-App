@@ -474,6 +474,14 @@ async function createClientPurchaseFromPayment({ buyer, planName, amountCents, r
     buyer.isPdf === true ||
     buyer.type === "pdf";
 
+  //   Decide if this is the Video workouts subscription plan
+  const isVideoSubscription =
+    buyer.planId === "video_subscription_monthly" ||
+    buyer.planName === "Video Workouts Monthly Subscription" ||
+    planName === "Video Workouts Monthly Subscription" ||
+    buyer.isVideo === true ||
+    buyer.type === "video";
+
   const nowTs = admin.firestore.FieldValue.serverTimestamp();
 
   //  1) Normal plans   write to client_purchases (for Active Plans dashboard)
@@ -570,6 +578,52 @@ async function createClientPurchaseFromPayment({ buyer, planName, amountCents, r
       console.log(" PDF subscription created for user:", userId);
     } catch (err) {
       console.error("  Error creating PDF subscription:", err.message || err);
+    }
+  }
+
+  //  3) Video subscription   create entries used only by Video workouts page
+  if (isVideoSubscription) {
+    try {
+      console.log("Creating/Updating Video subscription for user:", userId);
+
+      // 30 days from now
+      const nowDate = new Date();
+      const endDate = new Date(nowDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      const nowTsServer = admin.firestore.FieldValue.serverTimestamp();
+      const startTs = admin.firestore.Timestamp.fromDate(nowDate);
+      const endTs = admin.firestore.Timestamp.fromDate(endDate);
+
+      const userName = clientName;
+      const userEmail = buyer.email || "";
+
+      // client_subscriptions (read by VideoWorkoutsTab)
+      const subRef = db.collection("client_subscriptions").doc();
+      await subRef.set({
+        userId,
+        userName,
+        userEmail,
+        planName:
+          buyer.planName ||
+          planName ||
+          "Video Workouts Monthly Subscription",
+        price: priceDollars,
+        purchaseDate: startTs,
+        startDate: startTs,
+        endDate: endTs,
+        isActive: true,
+        status: "active",
+        paymentMethod: "square",
+        paymentStatus: (payment && payment.status) || "COMPLETED",
+        timezone: "server",
+        createdAt: nowTsServer,
+        type: "video",
+        isVideo: true,
+      });
+
+      console.log(" Video subscription created for user:", userId);
+    } catch (err) {
+      console.error("  Error creating Video subscription:", err.message || err);
     }
   }
 }

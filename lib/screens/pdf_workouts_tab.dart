@@ -33,6 +33,7 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
   bool _isProcessingPayment = false;
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pdfWorkoutsSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscriptionListener;
 
   // Square payment configuration (same as plans screen)
   static const String _squareApplicationId = AppConstants.squareApplicationId;
@@ -42,12 +43,14 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
   void initState() {
     super.initState();
     _checkSubscriptionStatus();
+    _setupSubscriptionListener();
     _setupPDFWorkoutsListener();
   }
 
   @override
   void dispose() {
     _pdfWorkoutsSubscription?.cancel();
+    _subscriptionListener?.cancel();
     super.dispose();
   }
 
@@ -120,6 +123,22 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
         _isCheckingSubscription = false;
       });
     }
+  }
+
+  // ---------- Realtime listener for subscription changes ----------
+  void _setupSubscriptionListener() {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    _subscriptionListener = _firestore
+        .collection('client_subscriptions')
+        .where('userId', isEqualTo: userId)
+        .where('type', isEqualTo: 'pdf')
+        .snapshots()
+        .listen((QuerySnapshot<Map<String, dynamic>> snapshot) {
+          if (!mounted) return;
+          _checkSubscriptionStatus();
+        });
   }
 
   // ---------- Realtime listener for pdf_workouts ----------
@@ -225,7 +244,8 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
       ),
     );
 
-    // After returning, re-check backend subscription state
+    // After returning, wait for Firestore sync then re-check backend subscription state
+    await Future.delayed(const Duration(milliseconds: 500));
     await _checkSubscriptionStatus();
 
     setState(() => _isProcessingPayment = false);
