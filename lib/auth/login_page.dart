@@ -23,6 +23,8 @@ class _LoginPageState extends State<LoginPage> {
   void initState() {
     super.initState();
     _checkBiometrics();
+    _checkDeviceSupport();
+
   }
 
   Future<void> _checkBiometrics() async {
@@ -39,6 +41,16 @@ class _LoginPageState extends State<LoginPage> {
         _canCheckBiometrics = false;
         _hasBiometrics = false;
         _biometricError = e.message ?? 'Biometric error';
+      });
+    }
+  }
+  Future<void> _checkDeviceSupport() async {
+    final isSupported = await auth.isDeviceSupported();
+
+    if (!isSupported) {
+      setState(() {
+        _biometricError =
+            'Biometric authentication not supported on this device';
       });
     }
   }
@@ -62,7 +74,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
 
   final RegExp _emailRegex = RegExp(
-    r'^[a-zA-Z0-9._+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$',
+    r'^[a-zA-Z0-9.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$',
   );
 
   final List<String> _disposableDomains = [
@@ -417,10 +429,12 @@ class _LoginPageState extends State<LoginPage> {
         setState(() { errorMessage = ''; });
         try {
           final didAuthenticate = await auth.authenticate(
-            localizedReason: 'Authenticate with Face ID / Touch ID / biometrics',
+            localizedReason: 'Please authenticate to login',
             options: const AuthenticationOptions(
               biometricOnly: true,
               stickyAuth: true,
+              useErrorDialogs: true,
+              sensitiveTransaction: true,
             ),
           );
           if (didAuthenticate) {
@@ -443,15 +457,12 @@ class _LoginPageState extends State<LoginPage> {
       }
     return Scaffold(
       backgroundColor: Colors.white,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
               Column(
                 children: [
                   Container(
