@@ -485,7 +485,7 @@ async function createClientPurchaseFromPayment({ buyer, planName, amountCents, r
   const nowTs = admin.firestore.FieldValue.serverTimestamp();
 
   //  1) Normal plans   write to client_purchases (for Active Plans dashboard)
-  if (!isPdfSubscription) {
+  if (!isPdfSubscription && !isVideoSubscription) {
     const purchaseRef = db.collection("client_purchases").doc();
 
     const purchaseData = {
@@ -520,7 +520,8 @@ async function createClientPurchaseFromPayment({ buyer, planName, amountCents, r
     await purchaseRef.set(purchaseData);
     console.log(" client_purchases created:", purchaseRef.id);
   } else {
-    console.log("PDF subscription purchase detected - skipping client_purchases for user:", userId);
+    const subType = isPdfSubscription ? "PDF" : "Video";
+    console.log(subType + " subscription purchase detected - skipping client_purchases for user:", userId);
   }
 
   //  2) PDF subscription   create entries used only by PDF workouts page
