@@ -601,8 +601,8 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
       final plan = {
         'docId': 'video_subscription_monthly',
         'name': 'Video Workouts Monthly Subscription',
-        'amount': 100, // $1.00 in cents
-        'price': 1.00,
+        'amount': 1299, // $12.99 in cents
+        'price': 12.99,
         'buyerEmail': userEmail,
         'buyerName': userName,
         'type': 'video',
@@ -627,7 +627,7 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
         await _firestore.collection('client_subscriptions').add({
           'userId': userId,
           'type': 'video',
-          'price': 1.00,
+          'price': 12.99,
           'isActive': true,
           'startDate': Timestamp.now(),
           'endDate': endDate.toIso8601String(),
