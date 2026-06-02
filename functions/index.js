@@ -998,6 +998,7 @@ Client: ${clientInfo}
 const ALLOWED_ORIGINS = [
   "https://flex-facility-app-b55aa.web.app",
   "https://flex-facility-app-b55aa.firebaseapp.com",
+  "https://us-central1-flex-facility-app-b55aa.cloudfunctions.net",
 ];
 
 const app = express();
