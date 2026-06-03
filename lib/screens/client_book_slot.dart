@@ -125,8 +125,6 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
     }
     _loadEligiblePurchase();
     _listenToTrainerSchedule();
-    _debugPrintActivePurchases();
-    _debugBookingProcess();
     
     // Optional: Fix existing data
     // Fix any existing data inconsistencies
@@ -710,6 +708,7 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
         List bookedEmails = [];
         List purchaseIds = [];
         Map<String, dynamic> userPurchaseMap = {};
+        Map<String, dynamic> statusByUser = {};
 
         if (slotDoc.exists) {
           bookedBy = List.from(slotDoc['booked_by'] ?? []);
@@ -717,6 +716,7 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
           bookedEmails = List.from(slotDoc['booked_emails'] ?? []);
           purchaseIds = List.from(slotDoc['purchase_ids'] ?? []);
           userPurchaseMap = Map<String, dynamic>.from(slotDoc['user_purchase_map'] ?? {});
+          statusByUser = Map<String, dynamic>.from(slotDoc['status_by_user'] ?? {});
         }
 
         // Check if slot is full
@@ -735,6 +735,7 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
         bookedEmails.add(userEmail);
         purchaseIds.add(purchaseId);
         userPurchaseMap[currentUser.uid] = purchaseId;
+        statusByUser[currentUser.uid] = 'Booked';
 
         // Update slot
         transaction.set(slotRef, {
@@ -749,9 +750,7 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
           'user_purchase_map': userPurchaseMap,
           'capacity': slotCapacity,
           'last_updated': FieldValue.serverTimestamp(),
-          'status_by_user': {
-            currentUser.uid: 'Booked'
-          },
+          'status_by_user': statusByUser,
         }, SetOptions(merge: true));
 
         // ✅ CRITICAL FIX: Update purchase - increment booked sessions

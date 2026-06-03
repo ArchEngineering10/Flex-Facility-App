@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'square_checkout.dart';
 import '../constants.dart';
+import '../widgets/rating_dialog.dart';
 
 class VideoWorkoutsTab extends StatefulWidget {
   const VideoWorkoutsTab({super.key});
@@ -853,146 +854,191 @@ class _VideoWorkoutsTabState extends State<VideoWorkoutsTab> {
     final difficulty = video['difficulty'] ?? 'Beginner';
     final imageUrl = video['thumbnailUrl'] ?? '';
     final duration = video['duration'] ?? '';
+    final docId = video['docId'] as String? ??
+        video['id'] as String? ??
+        index.toString();
+    final avgRating = (video['averageRating'] as num?)?.toDouble();
+    final ratingCount = video['ratingCount'] as int?;
 
-    return GestureDetector(
-      onTap: () => _showVideoPlayer(video),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Thumbnail with play button and duration
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                children: [
-                  Container(
-                    width: 180,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: imageUrl.isNotEmpty
-                        ? Image.network(
-                            imageUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: Colors.grey[800],
-                                child: const Center(
-                                  child: Icon(Icons.videocam,
-                                      color: Colors.white, size: 40),
-                                ),
-                              );
-                            },
-                          )
-                        : Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[800],
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Center(
-                              child: Icon(Icons.videocam,
-                                  color: Colors.white, size: 40),
-                            ),
-                          ),
-                  ),
-                  // Play Button
-                  Positioned.fill(
-                    child: Center(
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withAlpha(220),
-                        ),
-                        child: const Icon(
-                          Icons.play_arrow,
-                          color: Colors.black,
-                          size: 28,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Duration Badge (bottom-right)
-                  if (duration.isNotEmpty)
-                    Positioned(
-                      bottom: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withAlpha(200),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          duration,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Video Details
-            Expanded(
-              child: Column(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ── Main video row ──────────────────────────────────────────
+          GestureDetector(
+            onTap: () => _showVideoPlayer(video),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  // Difficulty
-                  Text(
-                    difficulty,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _getDifficultyColor(difficulty),
-                    ),
-                  ),
-                  if (duration.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        '⏱ $duration',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[600],
+                  // Thumbnail with play button and duration
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: 180,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: Colors.black,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: imageUrl.isNotEmpty
+                              ? Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.grey[800],
+                                    child: const Center(
+                                      child: Icon(Icons.videocam,
+                                          color: Colors.white, size: 40),
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[800],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Center(
+                                    child: Icon(Icons.videocam,
+                                        color: Colors.white, size: 40),
+                                  ),
+                                ),
                         ),
-                      ),
+                        Positioned.fill(
+                          child: Center(
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withAlpha(220),
+                              ),
+                              child: const Icon(Icons.play_arrow,
+                                  color: Colors.black, size: 28),
+                            ),
+                          ),
+                        ),
+                        if (duration.isNotEmpty)
+                          Positioned(
+                            bottom: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withAlpha(200),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(duration,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Video details
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name,
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 6),
+                        Text(difficulty,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _getDifficultyColor(difficulty))),
+                        if (duration.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text('⏱ $duration',
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.grey[600])),
+                          ),
+                      ],
+                    ),
+                  ),
+                  // Bookmark
+                  IconButton(
+                    onPressed: () => _toggleSaveVideo(video),
+                    icon: Icon(
+                      _savedVideoIds.contains(video['docId'])
+                          ? Icons.bookmark
+                          : Icons.bookmark_border,
+                      color: _savedVideoIds.contains(video['docId'])
+                          ? Colors.green
+                          : Colors.grey[400],
+                      size: 24,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
                 ],
               ),
             ),
-            // Save/Bookmark Button
-            IconButton(
-              onPressed: () => _toggleSaveVideo(video),
-              icon: Icon(
-                _savedVideoIds.contains(video['docId']) ? Icons.bookmark : Icons.bookmark_border,
-                color: _savedVideoIds.contains(video['docId']) ? Colors.green : Colors.grey[400],
-                size: 24,
-              ),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+          ),
+          // ── Rating footer ───────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: Row(
+              children: [
+                WorkoutRatingBadge(
+                  workoutId: docId,
+                  workoutType: 'video',
+                  cachedAverage: avgRating,
+                  cachedCount: ratingCount,
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => WorkoutRatingDialog.show(
+                    context,
+                    workoutId: docId,
+                    workoutType: 'video',
+                    workoutName: name,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.star_outline_rounded,
+                          size: 16, color: Colors.amber[700]),
+                      const SizedBox(width: 4),
+                      Text('Rate this',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.amber[700],
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

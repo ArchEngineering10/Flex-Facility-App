@@ -63,18 +63,21 @@ void main() async {
       badge: true,
       sound: true,
     );
-    print('User granted permission: ${settings.authorizationStatus}');
+    if (kDebugMode) {
+      print('User granted permission: ${settings.authorizationStatus}');
+    }
 
-    String? token = await messaging.getToken();
-    print('FCM Token: $token');
+    await messaging.getToken();
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('Received foreground notification: ${message.notification?.title}');
+      if (kDebugMode) {
+        print('Received foreground notification: ${message.notification?.title}');
+      }
     });
 
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
-    print('FCM init error: $e');
+    if (kDebugMode) print('FCM init error: $e');
   }
 
   // Keep FCM token synced to Firestore whenever auth state/token changes.
@@ -91,9 +94,7 @@ void _setupGlobalFcmTokenSync() {
       if (token != null) {
         await _upsertUserFcmToken(user.uid, token);
       }
-    } catch (e) {
-      print('Global FCM sync (auth change) error: $e');
-    }
+    } catch (_) {}
   });
 
   FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
@@ -101,9 +102,7 @@ void _setupGlobalFcmTokenSync() {
     if (user == null) return;
     try {
       await _upsertUserFcmToken(user.uid, token);
-    } catch (e) {
-      print('Global FCM sync (token refresh) error: $e');
-    }
+    } catch (_) {}
   });
 }
 
@@ -144,7 +143,6 @@ FirebaseRemoteConfig get remoteConfig => FirebaseRemoteConfig.instance;
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print('Received background notification: ${message.notification?.title}');
 }
 
 class MyApp extends StatelessWidget {
@@ -179,8 +177,14 @@ class MyApp extends StatelessWidget {
         '/checkout': (context) {
           final args =
               ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-          final url = args?['url'] as String? ??
-              'https://us-central1-flex-facility-app-b55aa.cloudfunctions.net/api/checkout?amountCents=2500';
+          final url = args?['url'] as String?;
+          if (url == null || url.isEmpty) {
+            return const Scaffold(
+              body: Center(
+                child: Text('Checkout must be started from a selected plan.'),
+              ),
+            );
+          }
           return CheckoutWebView(url: url);
         },
       },
@@ -249,11 +253,6 @@ class RootPage extends StatelessWidget {
                     final userName = email.toString().split('@').first;
 
                     if (role == 'admin') {
-                      if (!AdminAccess.isAllowedAdminEmail(email.toString())) {
-                        FirebaseAuth.instance.signOut();
-                        return const LoginPage();
-                      }
-
                       return admin.AdminDashboard(userName: userName);
                     }
 

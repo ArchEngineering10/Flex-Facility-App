@@ -97,19 +97,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       return;
     }
 
-    if (AdminAccess.isAllowedAdminEmail(refreshedUser.email)) return;
-
-    await FirebaseAuth.instance.signOut();
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('This account is not allowed to access the admin side.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+    // Role is verified via Firestore Security Rules server-side.
+    // No client-side email whitelist needed here.
   }
 
   Future<void> _loadAdminName() async {

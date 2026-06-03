@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:chewie/chewie.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../widgets/rating_dialog.dart';
 
 class ClientWorkoutScreen extends StatefulWidget {
   const ClientWorkoutScreen({super.key});
@@ -363,6 +364,44 @@ class _ClientWorkoutScreenState extends State<ClientWorkoutScreen> {
               ),
             ),
           ],
+          // ── Rating footer — always visible ────────────────────────────
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                WorkoutRatingBadge(
+                  workoutId: workoutId,
+                  workoutType: 'assigned',
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => WorkoutRatingDialog.show(
+                    context,
+                    workoutId: workoutId,
+                    workoutType: 'assigned',
+                    workoutName: workoutTitle,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.star_outline_rounded,
+                          size: 16, color: Colors.amber[700]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Rate this workout',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.amber[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -531,6 +570,44 @@ class _ClientWorkoutScreenState extends State<ClientWorkoutScreen> {
                     ),
             ),
           ],
+          // ── Rating footer ─────────────────────────────────────────────
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                WorkoutRatingBadge(
+                  workoutId: workoutId,
+                  workoutType: 'assigned',
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => WorkoutRatingDialog.show(
+                    context,
+                    workoutId: workoutId,
+                    workoutType: 'assigned',
+                    workoutName: data['workout_name'] ?? 'Workout',
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.star_outline_rounded,
+                          size: 16, color: Colors.amber[700]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Rate this workout',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.amber[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

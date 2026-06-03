@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'square_checkout.dart';
 import '../constants.dart';
+import '../widgets/rating_dialog.dart';
 
 class PDFWorkoutsTab extends StatefulWidget {
   const PDFWorkoutsTab({super.key});
@@ -345,6 +346,10 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
 
   // ---------- UI ----------
   Widget _buildPDFWorkoutCard(Map<String, dynamic> pdfWorkout, int index) {
+    final docId = pdfWorkout['docId'] as String? ?? pdfWorkout['id'] as String? ?? index.toString();
+    final avgRating = (pdfWorkout['averageRating'] as num?)?.toDouble();
+    final ratingCount = pdfWorkout['ratingCount'] as int?;
+
     return Card(
       elevation: 3,
       margin: const EdgeInsets.only(bottom: 12),
@@ -358,55 +363,100 @@ class _PDFWorkoutsTabState extends State<PDFWorkoutsTab> {
             end: Alignment.bottomRight,
           ),
         ),
-        child: ListTile(
-          leading: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: _hasActiveSubscription ? Colors.red[50] : Colors.grey[300],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              Icons.picture_as_pdf,
-              color: _hasActiveSubscription ? Colors.red : Colors.grey,
-              size: 28,
-            ),
-          ),
-          title: Text(
-            pdfWorkout['name'] ?? 'Workout',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: _hasActiveSubscription ? Colors.black : Colors.grey,
-            ),
-          ),
-          subtitle: (pdfWorkout['description'] != null)
-              ? Text(
-                  pdfWorkout['description'],
-                  style: TextStyle(
-                    color: _hasActiveSubscription ? Colors.grey : Colors.grey[400],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _hasActiveSubscription ? Colors.red[50] : Colors.grey[300],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.picture_as_pdf,
+                  color: _hasActiveSubscription ? Colors.red : Colors.grey,
+                  size: 28,
+                ),
+              ),
+              title: Text(
+                pdfWorkout['name'] ?? 'Workout',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _hasActiveSubscription ? Colors.black : Colors.grey,
+                ),
+              ),
+              subtitle: (pdfWorkout['description'] != null)
+                  ? Text(
+                      pdfWorkout['description'],
+                      style: TextStyle(
+                        color: _hasActiveSubscription ? Colors.grey : Colors.grey[400],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  : null,
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _hasActiveSubscription ? Colors.green[50] : Colors.orange[50],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _hasActiveSubscription ? Colors.green : Colors.orange,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                )
-              : null,
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _hasActiveSubscription ? Colors.green[50] : Colors.orange[50],
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: _hasActiveSubscription ? Colors.green : Colors.orange,
+                ),
+                child: Text(
+                  _hasActiveSubscription ? 'Subscribed' : 'Subscribe',
+                  style: TextStyle(
+                    color: _hasActiveSubscription ? Colors.green : Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
               ),
+              onTap: () => _showPDFViewer(pdfWorkout),
             ),
-            child: Text(
-              _hasActiveSubscription ? 'Subscribed' : 'Subscribe',
-              style: TextStyle(
-                color: _hasActiveSubscription ? Colors.green : Colors.orange,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
+            // ── Rating footer ────────────────────────────────────────────
+            if (_hasActiveSubscription)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Row(
+                  children: [
+                    WorkoutRatingBadge(
+                      workoutId: docId,
+                      workoutType: 'pdf',
+                      cachedAverage: avgRating,
+                      cachedCount: ratingCount,
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () => WorkoutRatingDialog.show(
+                        context,
+                        workoutId: docId,
+                        workoutType: 'pdf',
+                        workoutName: pdfWorkout['name'] ?? 'Workout',
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.star_outline_rounded,
+                              size: 16, color: Colors.amber[700]),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Rate this',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.amber[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          onTap: () => _showPDFViewer(pdfWorkout),
+          ],
         ),
       ),
     );

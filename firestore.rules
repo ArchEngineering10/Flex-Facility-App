@@ -1,0 +1,244 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Reads the caller's user document to check their role.
+    function callerRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && callerRole() == 'admin';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      // Any signed-in user can read their own document.
+      // Admin can read any user document.
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can update their own document but NOT change role or isActive.
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data)
+              .affectedKeys().hasAny(['role', 'isActive']);
+
+      // Only server-side (Cloud Functions use admin SDK, bypasses rules) or
+      // admin can create/delete user docs or change role.
+      allow create: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // ── Admin-only write collections ──────────────────────────────────────────
+
+    match /plans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isSignedIn();
+      // Clients can add comments/reactions — so allow update on subcollections.
+      allow create, delete: if isAdmin();
+      allow update: if isSignedIn(); // reactions, comments
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isAdmin() || isOwner(resource.data.authorId);
+      }
+    }
+
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Booking slots ─────────────────────────────────────────────────────────
+
+    match /trainer_slots/{slotId} {
+      allow read: if isSignedIn();
+      // Clients can create and update (book/cancel/waitlist/reschedule).
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /trainer_schedule/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Client data ───────────────────────────────────────────────────────────
+
+    match /client_purchases/{purchaseId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      // Clients can update their own purchase (e.g. decrement sessions on booking).
+      allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      // Only Cloud Functions or admin can create/delete purchases.
+      allow create, delete: if isAdmin();
+    }
+
+    match /client_subscriptions/{subId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow write: if isAdmin();
+    }
+
+    // ── Workouts ──────────────────────────────────────────────────────────────
+
+    match /workouts/{workoutId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /pdf_workouts/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /video_workouts/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /standard_workouts/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /custom_workout_groups/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /custom_video_categories/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /saved_workouts/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow write: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ── Revenue / admin reporting ─────────────────────────────────────────────
+
+    match /referrals/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /referral_settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /promotions/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /audit_logs/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // server-side only
+    }
+
+    // ── Chat ──────────────────────────────────────────────────────────────────
+
+    match /conversations/{clientId} {
+      // Only the client who owns the conversation or the admin can access.
+      allow read, write: if isOwner(clientId) || isAdmin();
+
+      match /messages/{messageId} {
+        allow read, write: if isOwner(clientId) || isAdmin();
+      }
+    }
+
+    // ── Payment / checkout ────────────────────────────────────────────────────
+
+    match /checkout_sessions/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow write: if false; // server-side only
+    }
+
+    match /invoice_metadata/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // server-side only
+    }
+
+    match /pdf_subscribers/{docId} {
+      allow read: if isAdmin();
+      allow write: if false; // server-side only
+    }
+
+    // ── Progress ──────────────────────────────────────────────────────────────
+
+    match /progress/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ── Ratings (new) ─────────────────────────────────────────────────────────
+
+    match /workout_ratings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /session_ratings/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Misc client collections ───────────────────────────────────────────────
+
+    match /client_workouts/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /time_slots/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /sessions/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow write: if isAdmin();
+    }
+
+    // ── Catch-all: signed-in users can read anything not explicitly listed.
+    //    Writes are admin-only for uncovered collections.
+    match /{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

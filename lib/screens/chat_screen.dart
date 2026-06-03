@@ -261,10 +261,20 @@ class _ChatScreenState extends State<ChatScreen> {
           itemBuilder: (context, i) {
             final data =
                 docs[i].data() as Map<String, dynamic>;
+            final role = data['senderRole'] as String? ?? '';
             final isMe = widget.isAdmin
-                ? data['senderRole'] == 'admin'
-                : data['senderRole'] == 'client';
+                ? role == 'admin'
+                : role == 'client';
             final showDate = _shouldShowDate(docs, i);
+
+            // System messages get a different widget
+            if (role == 'system') {
+              return _SystemMessageBubble(
+                data: data,
+                showDate: showDate,
+              );
+            }
+
             return _MessageBubble(
               data: data,
               isMe: isMe,
@@ -474,6 +484,88 @@ class _MessageBubble extends StatelessWidget {
     if (DateUtils.isSameDay(dt, now)) return 'Today';
     if (DateUtils.isSameDay(
         dt, now.subtract(const Duration(days: 1)))) {
+      return 'Yesterday';
+    }
+    return DateFormat('MMMM d, yyyy').format(dt);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// System message widget — centred pill with icon + text
+// ---------------------------------------------------------------------------
+
+class _SystemMessageBubble extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final bool showDate;
+
+  const _SystemMessageBubble({
+    required this.data,
+    required this.showDate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = data['text'] as String? ?? '';
+    final ts = data['timestamp'] as Timestamp?;
+    final time = ts != null
+        ? DateFormat('h:mm a').format(ts.toDate().toLocal())
+        : '';
+
+    return Column(
+      children: [
+        if (showDate && ts != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                _dateLabel(ts.toDate().toLocal()),
+                style: TextStyle(
+                    color: Colors.grey[700],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFBBC8FF), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                text,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF1C2D5E),
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                time,
+                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _dateLabel(DateTime dt) {
+    final now = DateTime.now();
+    if (DateUtils.isSameDay(dt, now)) return 'Today';
+    if (DateUtils.isSameDay(dt, now.subtract(const Duration(days: 1)))) {
       return 'Yesterday';
     }
     return DateFormat('MMMM d, yyyy').format(dt);

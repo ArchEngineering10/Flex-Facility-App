@@ -78,6 +78,76 @@ function sendTransactionalEmail({ to, subject, text, html, fromName }) {
 /* =========================
    Helpers
 ========================= */
+/* =============================================================================
+   CHAT HELPER — writes a system message into the client's conversation.
+   All automated messages (booking, payment, reminder, etc.) use this.
+============================================================================= */
+async function sendSystemChatMessage(clientUid, text, messageType) {
+  if (!clientUid) return;
+  try {
+    const db = admin.firestore();
+    const userSnap = await db.collection("users").doc(clientUid).get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+    const clientName = userData.name ||
+      [userData.firstName, userData.lastName].filter(Boolean).join(" ") ||
+      userData.email ||
+      "Client";
+
+    await db
+      .collection("conversations")
+      .doc(clientUid)
+      .collection("messages")
+      .add({
+        senderRole: "system",
+        type: messageType || "system",
+        text,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        read: false,
+      });
+
+    // Update conversation meta so admin inbox shows latest activity
+    await db.collection("conversations").doc(clientUid).set(
+      {
+        clientId: clientUid,
+        clientName,
+        clientEmail: userData.email || "",
+        clientPhoto: userData.photoUrl || userData.photoURL || "",
+        lastMessage: text,
+        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastSenderRole: "system",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.error(`sendSystemChatMessage error for ${clientUid}:`, e.message);
+  }
+}
+
+function dateFromSlotDocId(slotId) {
+  const dateKey = String(slotId || "").split("|")[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function dateFromFirestoreValue(value) {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getSlotDate(slotId, slotData = {}) {
+  return dateFromSlotDocId(slotId) || dateFromFirestoreValue(slotData.date);
+}
+
+function formatSlotDateForDisplay(slotId, slotData = {}, options) {
+  const slotDate = getSlotDate(slotId, slotData);
+  if (!slotDate) return "";
+  return slotDate.toLocaleDateString("en-US", options);
+}
+
 function safeRefId(ref) {
   if (!ref) return undefined;
   const s = String(ref).trim();
@@ -709,19 +779,32 @@ exports.notifyBookingOnCreate = functions
   .onCreate(async (snap) => {
     const data = snap.data();
     const bookedEmails = data.booked_emails || [];
-    if (bookedEmails.length === 0) return;
+    const bookedBy = data.booked_by || [];
 
+    // Send chat messages first — runs even if no emails are configured
     const slotTime = data.time;
-    const slotDate = data.date.toDate().toLocaleDateString();
+    const slotDate = formatSlotDateForDisplay(snap.id, data);
     const trainer = data.trainer_name || "your trainer";
-    const trainerEmail = (functions.config()?.trainer?.email || "Kenny@flextraining.co").trim();
-    const bookedNames = data.booked_names || [];
     const isReschedule = data.is_reschedule === true;
+    const formattedDate = formatSlotDateForDisplay(snap.id, data, {
+      weekday: "long", month: "long", day: "numeric",
+    });
+    for (const uid of bookedBy) {
+      if (!uid) continue;
+      const msg = isReschedule
+        ? `🔄 Session rescheduled\n📅 ${formattedDate}\n⏰ ${slotTime}\n👤 Trainer: ${trainer}`
+        : `✅ Session booked!\n📅 ${formattedDate}\n⏰ ${slotTime}\n👤 Trainer: ${trainer}\n\nPlease arrive 5 minutes early.`;
+      await sendSystemChatMessage(uid, msg, isReschedule ? "session_rescheduled" : "session_booked");
+    }
 
-    // Clean up flag if present
+    // Emails — only if emails are available
     if (isReschedule) {
       await snap.ref.update({ is_reschedule: admin.firestore.FieldValue.delete() });
     }
+    if (bookedEmails.length === 0) return;
+
+    const trainerEmail = (functions.config()?.trainer?.email || "Kenny@flextraining.co").trim();
+    const bookedNames = data.booked_names || [];
 
     // Build "Name (email)" pairs for trainer-facing emails
     const clientList = bookedEmails.map((email, i) => {
@@ -794,7 +877,6 @@ exports.notifyBookingOnCreate = functions
       html: trainerHtml,
     }).catch((err) => console.error(`Error sending trainer booking email to ${trainerEmail}:`, err));
 
-
   });
 
 /**
@@ -817,6 +899,7 @@ exports.handleBookingAndCancellation = functions
     const beforeBy = before.booked_by || [];
     const afterBy  = after.booked_by  || [];
     const newlyBookedUids = afterBy.filter((uid) => !beforeBy.includes(uid));
+    const slotId = change.after.id || change.after.ref.id;
 
     // Helper to build "Name (email)" string
     const clientLabel = (email, emailArr, nameArr) => {
@@ -826,9 +909,52 @@ exports.handleBookingAndCancellation = functions
     };
 
     const slotTime = after.time || before.time;
-    const slotDate = (after.date || before.date).toDate().toLocaleDateString();
+    const slotDate = formatSlotDateForDisplay(slotId, after.date ? after : before);
     const trainer = after.trainer_name || before.trainer_name || "your trainer";
     const trainerEmail = (functions.config()?.trainer?.email || "Kenny@flextraining.co").trim();
+
+    // ── Chat messages — runs FIRST before any early returns ──────────────────
+    const chatDate = formatSlotDateForDisplay(slotId, after.date ? after : before, {
+      weekday: "long", month: "long", day: "numeric",
+    });
+    const cancelledUids = beforeBy.filter((uid) => !afterBy.includes(uid));
+    const isRescheduleCancelFlag = after.is_reschedule_cancel === true;
+    const isRescheduleFlag = after.is_reschedule === true || before.is_reschedule === true;
+
+    // Regular cancellation — skip if this is part of a reschedule flow
+    if (!isRescheduleCancelFlag && cancelledUids.length > 0) {
+      for (const uid of cancelledUids) {
+        if (!uid) continue;
+        await sendSystemChatMessage(
+          uid,
+          `❌ Session cancelled\n📅 ${chatDate}\n⏰ ${slotTime}\n\nYou can rebook anytime from Book Session.`,
+          "session_cancelled"
+        );
+      }
+    }
+
+    // Reschedule — new slot booked as part of a reschedule
+    if (isRescheduleFlag && newlyBookedUids.length > 0) {
+      for (const uid of newlyBookedUids) {
+        if (!uid) continue;
+        await sendSystemChatMessage(
+          uid,
+          `🔄 Session rescheduled\n📅 ${chatDate}\n⏰ ${slotTime}\n👤 Trainer: ${trainer}`,
+          "session_rescheduled"
+        );
+      }
+    } else if (!isRescheduleFlag && newlyBookedUids.length > 0) {
+      // Regular new booking (onUpdate path — slot already existed)
+      for (const uid of newlyBookedUids) {
+        if (!uid) continue;
+        await sendSystemChatMessage(
+          uid,
+          `✅ Session booked!\n📅 ${chatDate}\n⏰ ${slotTime}\n👤 Trainer: ${trainer}\n\nPlease arrive 5 minutes early.`,
+          "session_booked"
+        );
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const tasks = [];
 
@@ -1309,11 +1435,10 @@ app.get("/checkout-session/:id", async (req, res) => {
 ========================= */
 app.post("/process-payment", paymentLimiter, async (req, res) => {
   try {
-    const authUser = await requireFirebaseUser(req);
-    const userProfile = await getUserProfile(authUser.uid, authUser);
-
     const {
       token,
+      amountCents: requestAmountCents,
+      planName = "Fitness Plan",
       currency = "USD",
       locationId,
       verificationToken,
@@ -1322,9 +1447,35 @@ app.post("/process-payment", paymentLimiter, async (req, res) => {
       referenceId,
     } = req.body || {};
 
+    const bearerToken = getBearerToken(req);
+    let authUser = null;
+    let userProfile = null;
+    if (bearerToken) {
+      authUser = await admin.auth().verifyIdToken(bearerToken);
+      userProfile = await getUserProfile(authUser.uid, authUser);
+    }
+
     const planId = (req.body?.planId || buyer.planId || "").toString().trim();
-    const plan = await resolvePaymentPlan(planId);
-    const amountCents = Math.round(Number(plan.price) * 100);
+    let plan;
+    let amountCents;
+    try {
+      plan = await resolvePaymentPlan(planId);
+      amountCents = Math.round(Number(plan.price) * 100);
+    } catch (planErr) {
+      if (authUser) throw planErr;
+      amountCents = Math.round(Number(requestAmountCents || 0));
+      plan = {
+        planId: planId || buyer.planId || null,
+        planName: buyer.planName || planName || "Training Plan",
+        planCategory: buyer.planCategory || "",
+        description: buyer.description || "",
+        price: buyer.price != null ? Number(buyer.price) : amountCents / 100,
+        sessions: Number(buyer.sessions || 0),
+        type: buyer.type,
+        isPdf: buyer.isPdf === true,
+      };
+      console.warn("process-payment: using legacy client-supplied plan data");
+    }
 
     if (!token) {
       return res.status(400).json({ ok: false, error: "Missing card token." });
@@ -1353,16 +1504,16 @@ app.post("/process-payment", paymentLimiter, async (req, res) => {
     if (!locId) throw new Error(`Square ${env} locationId missing in functions config`);
 
     const trustedBuyer = {
-      userId: authUser.uid,
+      userId: authUser?.uid || buyer.userId || null,
       planId: plan.planId,
       planName: plan.planName,
       planCategory: plan.planCategory,
       sessions: plan.sessions,
       price: plan.price,
       description: plan.description,
-      email: userProfile.email,
-      firstName: userProfile.firstName,
-      lastName: userProfile.lastName,
+      email: userProfile?.email || buyer.email || "",
+      firstName: userProfile?.firstName || buyer.firstName || "",
+      lastName: userProfile?.lastName || buyer.lastName || "",
       type: plan.type,
       isPdf: plan.isPdf === true,
     };
@@ -1471,6 +1622,18 @@ app.post("/process-payment", paymentLimiter, async (req, res) => {
       refId,
       payment: result.payment,
     });
+
+    if (authUser?.uid) {
+
+    // ── Chat message: payment confirmed ──────────────────────────────
+    const dollars = (amountCents / 100).toFixed(2);
+    await sendSystemChatMessage(
+      authUser.uid,
+      `💳 Payment received!\n📋 Plan: ${plan.planName}\n💵 Amount: $${dollars}\n✅ ${plan.sessions > 0 ? plan.sessions + " sessions are now active" : "Access is now active"}.`,
+      "payment_confirmed"
+    );
+
+    }
 
     return res.json({ ok: true, paymentId: result.payment?.id });
   } catch (e) {
@@ -1988,6 +2151,13 @@ exports.onNewUserSignup = functions.auth.user().onCreate(async (user) => {
         `</td></tr></table></td></tr></table></div>`,
     });
     console.log(`New signup notification sent to trainer for user: ${clientEmail}`);
+
+    // Chat message: welcome message to new client
+    await sendSystemChatMessage(
+      user.uid,
+      `👋 Welcome to Flex Facility, ${clientName}!\n\nYou can book sessions, view your workouts, and message Kenny right here.\n\nLet's get started! 💪`,
+      "welcome"
+    );
   } catch (e) {
     console.error("Failed to send new signup notification:", e.message);
   }
@@ -2030,100 +2200,92 @@ exports.sendSessionReminders = functions
       const bookedBy = slot.booked_by || [];
       const statusByUser = slot.status_by_user || {};
       const slotTime     = slot.time || "";
-      const slotDate     = slot.date.toDate().toLocaleDateString("en-US", {
+      const slotDate     = formatSlotDateForDisplay(slotDoc.id, slot, {
         weekday: "long", month: "long", day: "numeric"
       });
       const trainer      = slot.trainer_name || "your trainer";
       const reminderTimeLabel = "30 minutes";
-      // Send reminder email and push to each booked client
-      for (let i = 0; i < bookedEmails.length; i++) {
-        const email = bookedEmails[i];
-        const uid = bookedBy[i];
-        if (!email || !uid) continue;
+      // Use booked_by as primary loop — always populated even if emails missing
+      for (let i = 0; i < bookedBy.length; i++) {
+        const uid   = bookedBy[i];
+        const email = bookedEmails[i] || null;
+        if (!uid) continue;
 
         // Skip individually cancelled clients
         if (statusByUser[uid] === "Cancelled") continue;
         try {
-          // Send email
-          const logoImgSrc = getLogoImgSrc();
-          await sendTransactionalEmail({
-            to: email,
-            fromName: "Flex Facility",
-            subject: `[REMINDER] Upcoming Session - ${slotTime} on ${slotDate}`,
-            text:
-              `Hi,\n\nThis is a reminder that your training session with ${trainer} is coming up ${reminderTimeLabel}.\n\n` +
-              `Date: ${slotDate}\nTime: ${slotTime}\n\n` +
-              `Please make sure to arrive on time.\n\n- Flex Training`,
-            html:
-              `<div style="background:${BRAND_COLORS.lightBg};padding:24px 0;font-family:Arial,Helvetica,sans-serif;color:#111827;">` +
-              `<table align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;">` +
-              `<tr><td style="padding:24px;">` +
-              `<table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND_COLORS.cardBg};border-radius:16px;box-shadow:0 4px 16px rgba(15,23,42,0.08);overflow:hidden;">` +
-              `<tr><td style="padding:20px 24px 12px 24px;border-bottom:1px solid #e5e7eb;">` +
-              `<img src="${logoImgSrc}" alt="Flex Facility" width="100" style="display:block;margin-bottom:16px;border-radius:50%;object-fit:cover;" />` +
-              `<div style="font-size:18px;font-weight:600;color:${BRAND_COLORS.primary};">Session Reminder</div>` +
-              `<p style="margin:10px 0 0 0;font-size:14px;color:#4b5563;line-height:1.6;">This is a reminder that your training session with <strong>${trainer}</strong> is coming up <strong>${reminderTimeLabel}</strong>.</p>` +
-              `</td></tr>` +
-              `<tr><td style="padding:16px 24px 8px 24px;">` +
-              `<p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;">Session details</p>` +
-              `<table cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;color:#111827;">` +
-              `<tr><td style="padding:4px 0;width:90px;color:#6b7280;">Date</td><td style="padding:4px 0;"><strong>${slotDate}</strong></td></tr>` +
-              `<tr><td style="padding:4px 0;width:90px;color:#6b7280;">Time</td><td style="padding:4px 0;"><strong>${slotTime}</strong></td></tr>` +
-              `</table>` +
-              `</td></tr>` +
-              `<tr><td style="padding:16px 24px 24px 24px;">` +
-              `<p style="margin:0;font-size:14px;color:#4b5563;">Please make sure to arrive on time.</p>` +
-              `<p style="margin:16px 0 0 0;font-size:14px;color:#4b5563;">- Flex Training</p>` +
-              `</td></tr></table></td></tr></table></div>`,
-          });
-          console.log(`Reminder email sent to ${email} for slot ${slotDoc.id}`);
-          // Send push notification if user has fcm_token
-          const userDoc = await db.collection("users").doc(uid).get();
-          const userData = userDoc.exists ? userDoc.data() : null;
-          const fcmToken = userData && userData.fcm_token;
-          if (fcmToken) {
-            const pushTitle = "Session Reminder";
-            const pushBody = `Your session with ${trainer} is in 30 minutes.`;
-            await admin.messaging().send({
-              token: fcmToken,
-              notification: {
-                title: pushTitle,
-                body: pushBody,
-              },
-              android: {
-                priority: "high",
-                notification: {
-                  channelId: "session_reminders",
-                  priority: "high",
-                  sound: "default",
-                },
-              },
-              apns: {
-                payload: {
-                  aps: {
-                    sound: "default",
-                    badge: 1,
-                    contentAvailable: true,
-                  },
-                },
-                headers: {
-                  "apns-priority": "10",
-                },
-              },
-              data: {
-                slotId: slotDoc.id,
-                type: "reminder",
-              },
+          // Send email and push only if email address is available
+          if (email) {
+            const logoImgSrc = getLogoImgSrc();
+            await sendTransactionalEmail({
+              to: email,
+              fromName: "Flex Facility",
+              subject: `[REMINDER] Upcoming Session - ${slotTime} on ${slotDate}`,
+              text:
+                `Hi,\n\nThis is a reminder that your training session with ${trainer} is coming up ${reminderTimeLabel}.\n\n` +
+                `Date: ${slotDate}\nTime: ${slotTime}\n\n` +
+                `Please make sure to arrive on time.\n\n- Flex Training`,
+              html:
+                `<div style="background:${BRAND_COLORS.lightBg};padding:24px 0;font-family:Arial,Helvetica,sans-serif;color:#111827;">` +
+                `<table align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;">` +
+                `<tr><td style="padding:24px;">` +
+                `<table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND_COLORS.cardBg};border-radius:16px;box-shadow:0 4px 16px rgba(15,23,42,0.08);overflow:hidden;">` +
+                `<tr><td style="padding:20px 24px 12px 24px;border-bottom:1px solid #e5e7eb;">` +
+                `<img src="${logoImgSrc}" alt="Flex Facility" width="100" style="display:block;margin-bottom:16px;border-radius:50%;object-fit:cover;" />` +
+                `<div style="font-size:18px;font-weight:600;color:${BRAND_COLORS.primary};">Session Reminder</div>` +
+                `<p style="margin:10px 0 0 0;font-size:14px;color:#4b5563;line-height:1.6;">This is a reminder that your training session with <strong>${trainer}</strong> is coming up <strong>${reminderTimeLabel}</strong>.</p>` +
+                `</td></tr>` +
+                `<tr><td style="padding:16px 24px 8px 24px;">` +
+                `<p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;">Session details</p>` +
+                `<table cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;color:#111827;">` +
+                `<tr><td style="padding:4px 0;width:90px;color:#6b7280;">Date</td><td style="padding:4px 0;"><strong>${slotDate}</strong></td></tr>` +
+                `<tr><td style="padding:4px 0;width:90px;color:#6b7280;">Time</td><td style="padding:4px 0;"><strong>${slotTime}</strong></td></tr>` +
+                `</table>` +
+                `</td></tr>` +
+                `<tr><td style="padding:16px 24px 24px 24px;">` +
+                `<p style="margin:0;font-size:14px;color:#4b5563;">Please make sure to arrive on time.</p>` +
+                `<p style="margin:16px 0 0 0;font-size:14px;color:#4b5563;">- Flex Training</p>` +
+                `</td></tr></table></td></tr></table></div>`,
             });
-            console.log(`Reminder push sent to ${email} (${uid}) for slot ${slotDoc.id}`);
+            console.log(`Reminder email sent to ${email} for slot ${slotDoc.id}`);
+
+            // Push notification
+            const userDoc = await db.collection("users").doc(uid).get();
+            const fcmToken = userDoc.exists ? userDoc.data().fcm_token : null;
+            if (fcmToken) {
+              await admin.messaging().send({
+                token: fcmToken,
+                notification: {
+                  title: "Session Reminder",
+                  body: `Your session with ${trainer} is in 30 minutes.`,
+                },
+                android: {
+                  priority: "high",
+                  notification: { channelId: "session_reminders", priority: "high", sound: "default" },
+                },
+                apns: {
+                  payload: { aps: { sound: "default", badge: 1, contentAvailable: true } },
+                  headers: { "apns-priority": "10" },
+                },
+                data: { slotId: slotDoc.id, type: "reminder" },
+              });
+              console.log(`Reminder push sent to ${email} (${uid}) for slot ${slotDoc.id}`);
+            }
           }
+
+          // Chat message: always runs regardless of email availability
+          await sendSystemChatMessage(
+            uid,
+            `🔔 Session reminder!\n📅 ${slotDate}\n⏰ ${slotTime}\n👤 Trainer: ${trainer}\n\nSee you soon — don't forget to bring water!`,
+            "session_reminder"
+          );
         } catch (e) {
-          console.error(`Failed to send reminder to ${email} (${uid}):`, e);
+          console.error(`Failed to send reminder to ${uid}:`, e);
         }
       }
 
       // Send reminder to trainer if there are booked clients
-      if (bookedEmails.length > 0) {
+      if (bookedBy.length > 0) {
         try {
           const trainerEmail = (functions.config()?.trainer?.email || "Kenny@flextraining.co").trim();
           const clientNames = (slot.booked_names || []).join(", ") || "clients";
@@ -2222,6 +2384,13 @@ exports.checkPlanExpiry = functions
           apns: { payload: { aps: { sound: "default", badge: 1 } } },
         }).catch((e) => console.error("Expiry reminder FCM error:", e.message));
       }
+
+      // Chat message: plan expiring soon
+      await sendSystemChatMessage(
+        data.userId,
+        `⚠️ Your plan is expiring soon!\n📋 Plan: ${planName}\n📅 Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}\n\nRenew from Plans to keep booking sessions.`,
+        "plan_expiring"
+      );
 
       await doc.ref.update({ expiryReminderSent: true });
       console.log(`Expiry reminder sent: user=${data.userId} plan=${planName} daysLeft=${daysLeft}`);
@@ -2399,7 +2568,7 @@ exports.handleWaitlistOnCancellation = functions
     const uData = userDoc.data();
     const fcmToken = uData.fcm_token;
     const slotTime = after.time || "";
-    const slotDate = (after.date || before.date).toDate().toLocaleDateString("en-US", {
+    const slotDate = formatSlotDateForDisplay(change.after.id, after.date ? after : before, {
       weekday: "long", month: "long", day: "numeric",
     });
 
@@ -2431,6 +2600,119 @@ exports.handleWaitlistOnCancellation = functions
     await change.after.ref.update({
       waitlist: admin.firestore.FieldValue.arrayRemove(firstUid),
     });
+
+    return null;
+  });
+
+/* =============================================================================
+   AUTOMATION 4 — Post-Session Rating Prompts
+   Runs every 15 minutes. Finds slots that ended 30–45 min ago and sends a
+   rating prompt FCM to each booked client (once per slot).
+============================================================================= */
+exports.sendSessionRatingPrompts = functions
+  .runWith({ memory: "256MB", timeoutSeconds: 120 })
+  .pubsub.schedule("every 15 minutes")
+  .onRun(async () => {
+    const db = admin.firestore();
+    const now = new Date();
+
+    // Non-overlapping 15-min window: slots that ended 30–45 min ago
+    const windowStart = new Date(now.getTime() - 45 * 60 * 1000);
+    const windowEnd   = new Date(now.getTime() - 30 * 60 * 1000);
+
+    const slotsSnap = await db.collection("trainer_slots")
+      .where("date", ">=", admin.firestore.Timestamp.fromDate(windowStart))
+      .where("date", "<=", admin.firestore.Timestamp.fromDate(windowEnd))
+      .get();
+
+    if (slotsSnap.empty) return null;
+
+    for (const slotDoc of slotsSnap.docs) {
+      const slot = slotDoc.data();
+
+      // Skip cancelled slots or already prompted
+      if (slot.status === "cancelled" || slot.cancelled === true) continue;
+      if (slot.ratingPromptSent === true) continue;
+
+      const bookedEmails = slot.booked_emails || [];
+      const bookedBy     = slot.booked_by     || [];
+      const statusByUser = slot.status_by_user || {};
+      const slotTime = slot.time || "";
+      const slotDate = formatSlotDateForDisplay(slotDoc.id, slot, {
+        weekday: "long", month: "long", day: "numeric",
+      });
+
+      for (let i = 0; i < bookedBy.length; i++) {
+        const uid   = bookedBy[i];
+        const email = bookedEmails[i];
+        if (!uid) continue;
+
+        // Skip individually cancelled clients
+        if (statusByUser[uid] === "Cancelled") continue;
+
+        try {
+          const userDoc = await db.collection("users").doc(uid).get();
+          if (!userDoc.exists) continue;
+          const fcmToken = userDoc.data().fcm_token;
+          if (!fcmToken) continue;
+
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+              title: "How was your session? ⭐",
+              body: `Rate your training session on ${slotDate}`,
+            },
+            data: {
+              type: "session_rating_prompt",
+              slotId: slotDoc.id,
+              slotTime,
+              slotDate,
+            },
+            android: {
+              priority: "high",
+              notification: {
+                channelId: "flex_high_importance",
+                priority: "high",
+                sound: "default",
+              },
+            },
+            apns: {
+              payload: { aps: { sound: "default", badge: 1 } },
+              headers: { "apns-priority": "10" },
+            },
+          });
+          console.log(`Rating prompt sent to ${email || uid} for slot ${slotDoc.id}`);
+        } catch (e) {
+          console.error(`Rating prompt failed for ${uid}:`, e.message || e);
+        }
+      }
+
+      // Mark slot so prompt is not sent again
+      await slotDoc.ref.update({ ratingPromptSent: true });
+    }
+
+    return null;
+  });
+
+/* =============================================================================
+   NEW WORKOUT ASSIGNED — chat message when Kenny assigns a workout to a client
+============================================================================= */
+exports.onWorkoutAssigned = functions
+  .runWith({ memory: "128MB", timeoutSeconds: 30 })
+  .firestore.document("client_workouts/{workoutId}")
+  .onCreate(async (snap) => {
+    const data = snap.data();
+    const userId = data.userId || data.clientId;
+    if (!userId) return null;
+
+    const workoutName = data.workout_name || data.name || "a new workout";
+    const trainer = data.trainer || data.trainerName || "Kenny";
+
+    await sendSystemChatMessage(
+      userId,
+      `💪 New workout from ${trainer}!\n🏋️ ${workoutName}\n\nOpen Workouts to view your exercises.`,
+      "workout_assigned"
+    );
 
     return null;
   });

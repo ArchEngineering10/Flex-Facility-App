@@ -294,16 +294,9 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/client');
     } else if (role == 'admin') {
-      if (!AdminAccess.isAllowedAdminEmail(email)) {
-        await _auth.signOut();
-        if (!mounted) return;
-
-        setState(() {
-          errorMessage = 'This account is not allowed to access the admin side.';
-        });
-        return;
-      }
-
+      // Admin access is enforced by Firestore Security Rules + role field.
+      // No client-side email whitelist needed.
+      if (!mounted) return;
       Navigator.pushReplacementNamed(
         context,
         '/admin',

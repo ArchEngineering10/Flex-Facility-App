@@ -10,6 +10,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../widgets/shimmer_loading.dart';
+import '../widgets/rating_dialog.dart';
 import 'chat_screen.dart';
 import 'client_book_slot.dart';
 import 'client_plans_screen.dart';
@@ -166,7 +167,29 @@ class _ClientDashboardState extends State<ClientDashboard> {
   }
 
   void _showFcmSnackbar(RemoteMessage msg) {
-    final isReminder = msg.data['type'] == 'session_reminder';
+    final msgType = msg.data['type'] ?? '';
+
+    // Session rating prompt — show the rating bottom sheet directly
+    if (msgType == 'session_rating_prompt') {
+      final slotId   = msg.data['slotId'] ?? '';
+      final slotTime = msg.data['slotTime'] ?? '';
+      final slotDate = msg.data['slotDate'] ?? '';
+      if (slotId.isNotEmpty) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            SessionRatingSheet.show(
+              context,
+              slotId: slotId,
+              slotTime: slotTime,
+              slotDate: slotDate,
+            );
+          }
+        });
+      }
+      return;
+    }
+
+    final isReminder = msgType == 'session_reminder';
     final title = msg.notification!.title ?? '';
     final body = msg.notification!.body ?? '';
     final slotTime = msg.data['slotTime'] ?? '';
