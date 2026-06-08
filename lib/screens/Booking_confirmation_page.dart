@@ -218,6 +218,26 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage> {
     }
   }
 
+  /// Writes a system message to the client's chat conversation.
+  /// Called directly from Flutter for immediate reliability.
+  Future<void> _writeChatMessage(String uid, String text, String type) async {
+    try {
+      final db = FirebaseFirestore.instance;
+      await db.collection('conversations').doc(uid).collection('messages').add({
+        'senderRole': 'system',
+        'type': type,
+        'text': text,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+      await db.collection('conversations').doc(uid).set({
+        'lastMessage': text.split('\n').first,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'lastSenderRole': 'system',
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   // NEW METHOD: Handle reschedule without requiring active plan
   Future<void> _processRescheduleWithoutPlan(User user) async {
     try {
@@ -633,8 +653,14 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage> {
         _success = true;
       });
 
-      print(
-          '✅ ${isRescheduleLocal ? 'Reschedule' : 'Booking'} completed successfully!');
+      // Write chat message directly from app — more reliable than Cloud Function trigger
+      _writeChatMessage(
+        user.uid,
+        isRescheduleLocal
+            ? '🔄 Session rescheduled\n📅 ${DateFormat('EEEE, MMMM d').format(widget.selectedDate)}\n⏰ ${widget.selectedTime}\n👤 Trainer: ${widget.trainerName}'
+            : '✅ Session booked!\n📅 ${DateFormat('EEEE, MMMM d').format(widget.selectedDate)}\n⏰ ${widget.selectedTime}\n👤 Trainer: ${widget.trainerName}\n\nPlease arrive 5 minutes early.',
+        isRescheduleLocal ? 'session_rescheduled' : 'session_booked',
+      );
     } catch (e) {
       setState(() => _loading = false);
       print(

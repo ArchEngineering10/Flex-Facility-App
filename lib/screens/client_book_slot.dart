@@ -217,6 +217,106 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
       print('❌ Error in _fixInconsistentSessionData: $e');
     }
   }
+  // ── Upcoming Sessions Banner ─────────────────────────────────────────────
+
+  Widget _buildUpcomingSessionsBanner() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('trainer_slots')
+          .where('booked_by', arrayContains: uid)
+          .where('date', isGreaterThan: Timestamp.fromDate(DateTime.now()))
+          .orderBy('date')
+          .limit(3)
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData || snap.data!.docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final docs = snap.data!.docs;
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1C2D5E), Color(0xFF2E4A9E)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF1C2D5E).withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.event_available, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Your Booked Sessions',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ...docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final raw = data['date'];
+                DateTime date;
+                if (raw is Timestamp) {
+                  date = raw.toDate().toLocal();
+                } else {
+                  date = DateTime.now();
+                }
+                final time = data['time'] as String? ?? '';
+                final dateStr = DateFormat('EEE, MMM d · ').format(date);
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$dateStr$time',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── Waitlist ─────────────────────────────────────────────────────────────
 
   Future<void> _handleWaitlistTap(String time, bool isOnWaitlist) async {
@@ -1805,9 +1905,9 @@ class _ClientBookSlotState extends State<ClientBookSlot> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Purchase Info Card REMOVED - Container commented out
-                // _buildPurchaseInfo(),
-                
+                // ── Upcoming booked sessions banner ──────────────────────
+                _buildUpcomingSessionsBanner(),
+
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(

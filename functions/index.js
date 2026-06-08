@@ -1624,15 +1624,43 @@ app.post("/process-payment", paymentLimiter, async (req, res) => {
     });
 
     if (authUser?.uid) {
+      const dollars = (amountCents / 100).toFixed(2);
 
-    // ── Chat message: payment confirmed ──────────────────────────────
-    const dollars = (amountCents / 100).toFixed(2);
-    await sendSystemChatMessage(
-      authUser.uid,
-      `💳 Payment received!\n📋 Plan: ${plan.planName}\n💵 Amount: $${dollars}\n✅ ${plan.sessions > 0 ? plan.sessions + " sessions are now active" : "Access is now active"}.`,
-      "payment_confirmed"
-    );
+      // ── Chat message to client ────────────────────────────────────────
+      await sendSystemChatMessage(
+        authUser.uid,
+        `💳 Payment received!\n📋 Plan: ${plan.planName}\n💵 Amount: $${dollars}\n✅ ${plan.sessions > 0 ? plan.sessions + " sessions are now active" : "Access is now active"}.`,
+        "payment_confirmed"
+      );
 
+      // ── FCM push to Kenny ─────────────────────────────────────────────
+      try {
+        const trainerEmail = (functions.config()?.trainer?.email || "Kenny@flextraining.co").trim();
+        const trainerSnap = await admin.firestore()
+          .collection("users").where("email", "==", trainerEmail).limit(1).get();
+        if (!trainerSnap.empty) {
+          const fcmToken = trainerSnap.docs[0].data().fcm_token;
+          const clientName = `${userProfile.firstName} ${userProfile.lastName}`.trim() || userProfile.email;
+          if (fcmToken) {
+            await admin.messaging().send({
+              token: fcmToken,
+              notification: {
+                title: "💳 New Payment Received!",
+                body: `${clientName} paid $${dollars} for ${plan.planName}`,
+              },
+              data: { type: "payment_received", clientId: authUser.uid },
+              android: {
+                priority: "high",
+                notification: { channelId: "flex_high_importance", priority: "high", sound: "default" },
+              },
+              apns: { payload: { aps: { sound: "default", badge: 1 } }, headers: { "apns-priority": "10" } },
+            });
+            console.log(`Payment FCM sent to trainer for ${authUser.uid}`);
+          }
+        }
+      } catch (e) {
+        console.error("Payment FCM to trainer error:", e.message);
+      }
     }
 
     return res.json({ ok: true, paymentId: result.payment?.id });
@@ -2042,10 +2070,14 @@ exports.onNewChatMessage = functions
   .onCreate(async (snap, context) => {
     const data = snap.data();
     const { clientId } = context.params;
-    const senderRole = data.senderRole; // 'client' | 'admin'
+    const senderRole = data.senderRole; // 'client' | 'admin' | 'system'
     const text = (data.text || '').toString();
     const preview = text.length > 120 ? text.substring(0, 120) + '…' : text;
     const db = admin.firestore();
+
+    // System messages (automated: booking, payment, reminder) — no push needed.
+    // The client can see these in their chat history; a push would be noisy/confusing.
+    if (senderRole === 'system') return null;
 
     try {
       if (senderRole === 'client') {

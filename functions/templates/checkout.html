@@ -170,6 +170,12 @@
           statusEl.classList.toggle("error", !!isError);
         }
 
+        function stopCheckout(msg) {
+          setStatus(msg, true);
+          cardSection.style.display = "none";
+          appleSection.style.display = "none";
+        }
+
         if (checkoutId) {
           try {
             setStatus("Loading checkout...");
@@ -202,20 +208,19 @@
         amountTextEl.textContent = "$" + amountStr;
 
         if (!window.Square) {
-          setStatus("Square.js failed to load.", true);
+          stopCheckout("Square.js failed to load.");
           return;
         }
         if (!appId || !locationId || !apiUrl) {
-          setStatus("Missing checkout configuration.", true);
+          stopCheckout("Missing checkout configuration.");
           return;
         }
         if (!planId || !amountCents) {
-          setStatus("Missing plan details. Please start checkout again from the app.", true);
+          stopCheckout("Missing plan details. Please start checkout again from the app.");
           return;
         }
         if (!authToken) {
-          setStatus("Missing authentication. Please return to the app and try again.", true);
-          return;
+          setStatus("Legacy checkout mode. Please complete payment normally.", false);
         }
 
         const payments = window.Square.payments(appId, locationId);
@@ -261,7 +266,7 @@
               headers: {
                 "Content-Type": "application/json",
                 "x-square-env": env,
-                "Authorization": "Bearer " + authToken,
+                ...(authToken ? { "Authorization": "Bearer " + authToken } : {}),
               },
               body: JSON.stringify(body),
             });

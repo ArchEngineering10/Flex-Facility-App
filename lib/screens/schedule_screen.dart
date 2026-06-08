@@ -176,9 +176,42 @@ class _MySchedulePageState extends State<MySchedulePage> with SingleTickerProvid
     });
   }
 
+  /// Writes a system message to the client's chat conversation.
+  Future<void> _writeChatMessage(String uid, String text, String type) async {
+    try {
+      await _firestore.collection('conversations').doc(uid).collection('messages').add({
+        'senderRole': 'system',
+        'type': type,
+        'text': text,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+      await _firestore.collection('conversations').doc(uid).set({
+        'lastMessage': text.split('\n').first,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'lastSenderRole': 'system',
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   Future<void> _cancelBooking(DocumentReference docRef) async {
     final user = _auth.currentUser;
     if (user == null) return;
+
+    // Capture slot date/time before transaction for chat message
+    String formattedDateForChat = '';
+    String timeForChat = '';
+    try {
+      final slotSnap = await docRef.get();
+      if (slotSnap.exists) {
+        final d = slotSnap.data() as Map<String, dynamic>;
+        final raw = d['date'];
+        if (raw is Timestamp) {
+          formattedDateForChat = DateFormat('EEEE, MMMM d').format(raw.toDate().toLocal());
+        }
+        timeForChat = d['time'] as String? ?? '';
+      }
+    } catch (_) {}
 
     try {
       String? userPurchaseId;
@@ -233,6 +266,16 @@ class _MySchedulePageState extends State<MySchedulePage> with SingleTickerProvid
           backgroundColor: Colors.green,
         ),
       );
+
+      // Write chat message directly — immediate and reliable
+      final cancelUser = _auth.currentUser;
+      if (cancelUser != null) {
+        _writeChatMessage(
+          cancelUser.uid,
+          '❌ Session cancelled\n📅 $formattedDateForChat\n⏰ $timeForChat\n\nYou can rebook anytime from Book Session.',
+          'session_cancelled',
+        );
+      }
 
       // Force refresh purchase data
       await _loadEligiblePurchase();
