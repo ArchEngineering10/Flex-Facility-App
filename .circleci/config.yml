@@ -1,0 +1,10 @@
+version: 2.1
+
+orbs:
+  flutter: circleci/flutter@2.1.0
+
+workflows:
+  flexapp-ci:
+    jobs:
+      - flutter/lint
+      - flutter/unit_test
