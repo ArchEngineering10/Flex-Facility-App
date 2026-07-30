@@ -6,5 +6,7 @@ orbs:
 workflows:
   flexapp-ci:
     jobs:
-      - flutter/lint
-      - flutter/unit_test
+      - flutter/lint:
+          version: "3.24.5"
+      - flutter/unit_test:
+          version: "3.24.5"
