@@ -484,7 +484,7 @@ class _PlansScreenState extends State<PlansScreen> with SingleTickerProviderStat
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               DropdownButtonFormField<String>(
-                                initialValue: _selectedCategory,
+                                value: _selectedCategory,
                                 isExpanded: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Category *',
@@ -573,7 +573,7 @@ class _PlansScreenState extends State<PlansScreen> with SingleTickerProviderStat
                           ),
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
-                            initialValue: _selectedStatus,
+                            value: _selectedStatus,
                             isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Status *',
@@ -1081,10 +1081,6 @@ class _PlansScreenState extends State<PlansScreen> with SingleTickerProviderStat
                 child: AlertDialog(
                   insetPadding: EdgeInsets.zero,
                   scrollable: true,
-                  constraints: const BoxConstraints(
-                    minWidth: 335,
-                    maxWidth: 800,
-                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -1166,7 +1162,7 @@ class _PlansScreenState extends State<PlansScreen> with SingleTickerProviderStat
                               ),
                               const SizedBox(height: 4),
                               DropdownButtonFormField<String>(
-                                initialValue: _selectedVideoCategory,
+                                value: _selectedVideoCategory,
                                 isExpanded: true,
                                 decoration: InputDecoration(
                                   border: OutlineInputBorder(
@@ -1260,7 +1256,7 @@ class _PlansScreenState extends State<PlansScreen> with SingleTickerProviderStat
                               ),
                               const SizedBox(height: 4),
                               DropdownButtonFormField<String>(
-                                initialValue: _selectedVideoDifficulty,
+                                value: _selectedVideoDifficulty,
                                 isExpanded: true,
                                 decoration: InputDecoration(
                                   border: OutlineInputBorder(
