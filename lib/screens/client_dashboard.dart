@@ -12,7 +12,7 @@ import 'client_book_slot.dart';
 import 'client_plans_screen.dart';
 import 'schedule_screen.dart';
 import 'post_announcement_client.dart';
-import 'profileScreen.dart';
+import 'ProfileScreen.dart';
 
 class DashboardItem {
   final IconData icon;
