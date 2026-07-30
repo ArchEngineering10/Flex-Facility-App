@@ -1,12 +1,50 @@
 version: 2.1
 
-orbs:
-  flutter: circleci/flutter@2.1.0
+jobs:
+  test-and-build:
+    docker:
+      - image: ghcr.io/cirruslabs/flutter:3.24.5
+
+    resource_class: large
+
+    steps:
+      - checkout
+
+      - run:
+          name: Verify Flutter version
+          command: flutter --version
+
+      - restore_cache:
+          keys:
+            - flutter-packages-v1-{{ checksum "pubspec.lock" }}
+            - flutter-packages-v1-
+
+      - run:
+          name: Install dependencies
+          command: flutter pub get
+
+      - save_cache:
+          key: flutter-packages-v1-{{ checksum "pubspec.lock" }}
+          paths:
+            - ~/.pub-cache
+
+      - run:
+          name: Analyze Flutter code
+          command: flutter analyze
+
+      - run:
+          name: Run Flutter tests
+          command: flutter test
+
+      - run:
+          name: Build Android APK
+          command: flutter build apk --release
+
+      - store_artifacts:
+          path: build/app/outputs/flutter-apk/app-release.apk
+          destination: Flex-Facility-App.apk
 
 workflows:
-  flexapp-ci:
+  flexapp-android-ci:
     jobs:
-      - flutter/lint:
-          version: "3.24.5"
-      - flutter/unit_test:
-          version: "3.24.5"
+      - test-and-build
